@@ -8,9 +8,12 @@ package org.mozilla.javascript.ast;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+
 import org.mozilla.javascript.Node;
 import org.mozilla.javascript.Token;
 
@@ -24,6 +27,7 @@ public class Scope extends Jump {
     protected Map<String, Symbol> symbolTable;
     protected Scope parentScope;
     protected ScriptNode top; // current script or function scope
+    protected Set<String> exportedIdentifiers = new HashSet<>();
 
     private List<Scope> childScopes;
 
@@ -107,6 +111,10 @@ public class Scope extends Jump {
     /** Sets top current script or function scope */
     public void setTop(ScriptNode top) {
         this.top = top;
+    }
+
+    public boolean addExportedIdentifier(String identifier) {
+        return exportedIdentifiers.add(identifier);
     }
 
     /**

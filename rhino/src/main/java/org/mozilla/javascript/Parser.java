@@ -28,12 +28,14 @@ import org.mozilla.javascript.ast.Comment;
 import org.mozilla.javascript.ast.ComputedPropertyKey;
 import org.mozilla.javascript.ast.ConditionalExpression;
 import org.mozilla.javascript.ast.ContinueStatement;
+import org.mozilla.javascript.ast.DeclarationNameVisitor;
 import org.mozilla.javascript.ast.DestructuringForm;
 import org.mozilla.javascript.ast.DoLoop;
 import org.mozilla.javascript.ast.ElementGet;
 import org.mozilla.javascript.ast.EmptyExpression;
 import org.mozilla.javascript.ast.EmptyStatement;
 import org.mozilla.javascript.ast.ErrorNode;
+import org.mozilla.javascript.ast.ExportNode;
 import org.mozilla.javascript.ast.ExpressionStatement;
 import org.mozilla.javascript.ast.ForInLoop;
 import org.mozilla.javascript.ast.ForLoop;
@@ -1399,6 +1401,10 @@ public class Parser {
                 pn = importStatement();
                 break;
 
+            case Token.EXPORT:
+                pn = exportStatement();
+                break;
+
             case Token.NAME:
                 pn = nameOrLabel();
                 if (pn instanceof ExpressionStatement) break;
@@ -2284,6 +2290,148 @@ public class Parser {
         in.setModulePath(createNameNode());
 
         return in;
+    }
+
+    private AstNode exportStatement() throws IOException {
+        if (currentScope.getParentScope() != null) {
+            reportError("msg.export.top.level");
+        }
+
+        consumeToken();
+
+        // There are many different things we could do here,
+        // this could be either a standalone export statement,
+        // or an inline export declaration
+        ExportNode en = new ExportNode();
+        en.setLineColumnNumber(lineNumber(), columnNumber());
+
+        if (matchToken(Token.DEFAULT, true)) {
+            AstNode node;
+            if (currentToken == Token.FUNCTION) {
+                node = function(FunctionNode.FUNCTION_EXPRESSION);
+            } else {
+                node = assignExpr();
+            }
+            en.setExportedValue(node);
+            en.setDefaultExport();
+            if (!currentScope.addExportedIdentifier("*default*")) {
+                reportError("msg.export.duplicate.default");
+            } else {
+                defineSymbol(Token.CONST, "*default*", true);
+            }
+        } else if (matchToken(Token.MUL, true)) {
+            mustMatchToken(Token.NAME, "msg.export.missing.from", true);
+            if ("as".equals(ts.getString())) {
+                nextToken();
+                Name name = createNameNode();
+                if (!currentScope.addExportedIdentifier(name.getIdentifier())) {
+                    reportError("msg.export.duplicate.identifier", name.getIdentifier());
+                }
+                en.setNamespaceBinding(name);
+                mustMatchToken(Token.NAME, "msg.export.missing.from", true);
+            } else {
+                en.setNamespaceBinding(null);
+            }
+
+            if (!"from".equals(ts.getString())) {
+                reportError("msg.export.missing.from");
+            }
+
+            mustMatchToken(Token.STRING, "msg.export.reexport.expected.module", true);
+            en.setModulePath(createNameNode());
+        } else if (matchToken(Token.LC, true)) {
+            while (!matchToken(Token.RC, true)) {
+                Name target;
+                if (matchToken(Token.NAME, true)) {
+                    target = createNameNode();
+                } else if (matchToken(Token.DEFAULT, true)) {
+                    target = createNameNode();
+                    target.setIdentifier("*default*");
+                } else {
+                    reportError("msg.export.malformed.identifier");
+                    while (!matchToken(Token.RC, true)) {
+                        nextToken();
+                    }
+                    continue;
+                }
+                Name scope = null;
+
+                if (matchToken(Token.NAME, true)) {
+                    if (!"as".equals(ts.getString())) {
+                        reportError("msg.export.unexpected.identifier");
+                    }
+
+                    if (matchToken(Token.STRING, true)) {
+                        scope = createName(ts.getString());
+                        scope.setLineColumnNumber(lineNumber(), columnNumber());
+                    } else if (matchToken(Token.NAME, true)) {
+                        scope = createNameNode();
+                    } else if (matchToken(Token.DEFAULT, true)) {
+                        scope = createName("*default*");
+                        scope.setLineColumnNumber(lineNumber(), columnNumber());
+                    } else {
+                        reportError("msg.export.malformed.alias");
+                        consumeToken();
+                    }
+                }
+
+                if (scope == null) {
+                    scope = target.copy();
+                }
+
+                if (!currentScope.addExportedIdentifier(scope.getIdentifier())) {
+                    reportError("msg.export.duplicate.identifier", scope.getIdentifier());
+                }
+
+                en.addNamedBinding(target, scope);
+
+                if (!matchToken(Token.COMMA, true)) {
+                    mustMatchToken(Token.RC, "msg.export.expected.rc", true);
+                    break;
+                }
+            }
+
+            if (matchToken(Token.NAME, true)) {
+                if (!"from".equals(ts.getString())) {
+                    reportError("msg.export.missing.from");
+                }
+
+                consumeToken();
+                mustMatchToken(Token.STRING, "msg.export.reexport.expected.module", true);
+                en.setModulePath(createNameNode());
+            }
+        } else {
+            AstNode node = statement();
+
+            // Need to check for duplicate names here. Duplicate let/const declarations will be detected
+            // elsewhere, but still need to check for conflicting var declarations
+            DeclarationNameVisitor visitor = new DeclarationNameVisitor();
+            node.visit(visitor);
+
+            for (Name name : visitor.getNames()) {
+                if (!currentScope.addExportedIdentifier(name.getIdentifier())) {
+                    reportError("msg.export.duplicate.identifier", name.getIdentifier());
+                }
+            }
+
+            validateExport(node);
+            en.setExportedValue(node);
+        }
+
+        return en;
+    }
+
+    private void validateExport(AstNode node) {
+        if (!(
+                node instanceof VariableDeclaration ||
+                node instanceof FunctionNode
+        )) {
+            reportError("msg.export.invalid.export");
+        }
+
+        if (node instanceof FunctionNode && ((FunctionNode) node).getFunctionName() == null) {
+            reportError("msg.export.no.identifier");
+        }
     }
 
     private void recordLabel(Label label, LabeledStatement bundle) throws IOException {
