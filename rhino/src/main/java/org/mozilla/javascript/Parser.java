@@ -44,6 +44,7 @@ import org.mozilla.javascript.ast.GeneratorExpressionLoop;
 import org.mozilla.javascript.ast.GeneratorMethodDefinition;
 import org.mozilla.javascript.ast.IdeErrorReporter;
 import org.mozilla.javascript.ast.IfStatement;
+import org.mozilla.javascript.ast.ImportNode;
 import org.mozilla.javascript.ast.InfixExpression;
 import org.mozilla.javascript.ast.Jump;
 import org.mozilla.javascript.ast.KeywordLiteral;
@@ -1394,6 +1395,10 @@ public class Parser {
                 pn = defaultXmlNamespace();
                 break;
 
+            case Token.IMPORT:
+                pn = importStatement();
+                break;
+
             case Token.NAME:
                 pn = nameOrLabel();
                 if (pn instanceof ExpressionStatement) break;
@@ -2190,6 +2195,95 @@ public class Parser {
 
         ExpressionStatement es = new ExpressionStatement(dxmln, true);
         return es;
+    }
+
+    private AstNode importStatement() throws IOException {
+        if (currentScope.getParentScope() != null) {
+            reportError("msg.import.top.level");
+        }
+
+        consumeToken();
+        ImportNode in = new ImportNode();
+        in.setLineColumnNumber(lineNumber(), columnNumber());
+
+        if (matchToken(Token.STRING, true)) {
+            consumeToken();
+            in.setModulePath(createNameNode());
+            return in;
+        }
+
+        boolean canHaveNamedImports = true;
+        boolean canHaveNamespaceImport = true;
+
+        if (matchToken(Token.NAME, true)) {
+            Name defaultImport = createNameNode();
+            defineSymbol(Token.CONST, defaultImport.getIdentifier());
+            consumeToken();
+            in.setDefaultBinding(defaultImport);
+            if (matchToken(Token.COMMA, true)) {
+                consumeToken();
+            } else {
+                canHaveNamedImports = false;
+                canHaveNamespaceImport = false;
+            }
+        }
+
+        if (canHaveNamespaceImport && matchToken(Token.MUL, true)) {
+            mustMatchToken(Token.NAME, "msg.import.namespace.missing.alias", true);
+            consumeToken();
+
+            mustMatchToken(Token.NAME, "msg.import.namespace.missing.alias", true);
+            Name target = createNameNode();
+            defineSymbol(Token.CONST, target.getIdentifier());
+            in.setNamespaceBinding(target);
+            consumeToken();
+            canHaveNamedImports = false;
+        }
+
+        if (canHaveNamedImports && matchToken(Token.LC, true)) {
+            while (!matchToken(Token.RC, true)) {
+                Name targetName;
+                Name scopeName;
+
+                if (matchToken(Token.NAME, true) || matchToken(Token.STRING, true)) {
+                    targetName = createNameNode();
+                } else if (matchToken(Token.DEFAULT, true)) {
+                    targetName = createNameNode();
+                    targetName.setIdentifier("*default*");
+                } else {
+                    reportError("msg.import.malformed.identifier");
+                    continue;
+                }
+
+                if (matchToken(Token.NAME, true)) {
+                    if (!"as".equals(ts.getString())) {
+                        reportError("msg.import.unexpected.identifier");
+                    }
+                    mustMatchToken(Token.NAME, "msg.import.expected.identifier.after.as", true);
+                    scopeName = createNameNode();
+                } else {
+                    scopeName = targetName.copy();
+                }
+
+                defineSymbol(Token.CONST, scopeName.getIdentifier());
+                in.addNamedBinding(targetName, scopeName);
+
+                if (!matchToken(Token.COMMA, true)) {
+                    mustMatchToken(Token.RC, "msg.import.expected.rc", true);
+                    break;
+                }
+            }
+        }
+
+        mustMatchToken(Token.NAME, "msg.import.expected.module", true);
+        if (!"from".equals(ts.getString())) {
+            reportError("msg.import.expected.module");
+        }
+
+        mustMatchToken(Token.STRING, "msg.import.expected.module", true);
+        in.setModulePath(createNameNode());
+
+        return in;
     }
 
     private void recordLabel(Label label, LabeledStatement bundle) throws IOException {
@@ -4686,7 +4780,7 @@ public class Parser {
         return empty;
     }
 
-    protected Node createName(String name) {
+    protected Name createName(String name) {
         checkActivationName(name, Token.NAME);
         return Node.newString(Token.NAME, name);
     }

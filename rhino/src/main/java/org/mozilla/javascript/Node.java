@@ -149,7 +149,7 @@ public class Node implements Iterable<Node> {
         return newString(Token.STRING, str);
     }
 
-    public static Node newString(int type, String str) {
+    public static Name newString(int type, String str) {
         Name name = new Name();
         name.setIdentifier(str);
         name.setType(type);

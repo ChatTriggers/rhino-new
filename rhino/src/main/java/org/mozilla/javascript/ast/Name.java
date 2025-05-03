@@ -123,6 +123,13 @@ public class Name extends AstNode {
         return scope != null && scope.getParentScope() != null;
     }
 
+    public Name copy() {
+        Name newName = new Name(getPosition(), getLength(), getIdentifier());
+        newName.setScope(getScope());
+        newName.setLineColumnNumber(getLineno(), getColumn());
+        return newName;
+    }
+
     /**
      * Return the length of this node's identifier, to let you pretend it's a {@link String}. Don't
      * confuse this method with the {@link AstNode#getLength} method, which returns the range of
