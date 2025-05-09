@@ -10,6 +10,8 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Queue;
+import java.util.stream.Collectors;
+
 import org.mozilla.javascript.ast.ArrayComprehension;
 import org.mozilla.javascript.ast.ArrayComprehensionLoop;
 import org.mozilla.javascript.ast.ArrayLiteral;
@@ -23,10 +25,12 @@ import org.mozilla.javascript.ast.CatchClause;
 import org.mozilla.javascript.ast.ComputedPropertyKey;
 import org.mozilla.javascript.ast.ConditionalExpression;
 import org.mozilla.javascript.ast.ContinueStatement;
+import org.mozilla.javascript.ast.DeclarationNameVisitor;
 import org.mozilla.javascript.ast.DestructuringForm;
 import org.mozilla.javascript.ast.DoLoop;
 import org.mozilla.javascript.ast.ElementGet;
 import org.mozilla.javascript.ast.EmptyExpression;
+import org.mozilla.javascript.ast.ExportNode;
 import org.mozilla.javascript.ast.ExpressionStatement;
 import org.mozilla.javascript.ast.ForInLoop;
 import org.mozilla.javascript.ast.ForLoop;
@@ -36,6 +40,7 @@ import org.mozilla.javascript.ast.GeneratorExpression;
 import org.mozilla.javascript.ast.GeneratorExpressionLoop;
 import org.mozilla.javascript.ast.GeneratorMethodDefinition;
 import org.mozilla.javascript.ast.IfStatement;
+import org.mozilla.javascript.ast.ImportNode;
 import org.mozilla.javascript.ast.InfixExpression;
 import org.mozilla.javascript.ast.Jump;
 import org.mozilla.javascript.ast.KeywordLiteral;
@@ -163,6 +168,8 @@ public final class IRFactory {
             case Token.EMPTY:
             case Token.COMMENT:
                 return node;
+            case Token.EXPORT:
+                return transformExport((ExportNode) node);
             case Token.FOR:
                 if (node instanceof ForInLoop) {
                     return transformForInLoop((ForInLoop) node);
@@ -186,7 +193,8 @@ public final class IRFactory {
                 return transformCondExpr((ConditionalExpression) node);
             case Token.IF:
                 return transformIf((IfStatement) node);
-
+            case Token.IMPORT:
+                return transformImport((ImportNode) node);
             case Token.TRUE:
             case Token.FALSE:
             case Token.THIS:
@@ -576,6 +584,108 @@ public final class IRFactory {
     private Node transformExprStmt(ExpressionStatement node) {
         Node expr = transform(node.getExpression());
         return new Node(node.getType(), expr, node.getLineno(), node.getColumn());
+    }
+
+    private Node transformImport(ImportNode importNode) {
+        int lineno = importNode.getLineno();
+        int colno = importNode.getColumn();
+        Node node = new Node(Token.IMPORT, lineno, colno);
+
+        ImportNode.ModuleBinding defaultImport = importNode.getDefaultBinding();
+        ImportNode.ModuleBinding namespaceImport = importNode.getNamespaceBinding();
+
+        if (defaultImport != null) {
+            Node namedImport = new Node(Token.NAMED_IMPORT, lineno, colno);
+            node.addChildToBack(namedImport);
+            Name defaultName = new Name(defaultImport.getScopeName().getPosition(), "*default*");
+            defaultName.setLineColumnNumber(lineno, colno);
+            namedImport.addChildToBack(defaultName);
+            namedImport.addChildToBack(transform(defaultImport.getScopeName()));
+        }
+
+        if (namespaceImport != null) {
+            Node namespaceImportNode = new Node(Token.NAMESPACE_IMPORT_EXPORT, lineno, colno);
+            node.addChildToBack(namespaceImportNode);
+            namespaceImportNode.addChildToBack(transform(namespaceImport.getScopeName()));
+        }
+
+        for (ImportNode.ModuleBinding binding : importNode.getNamedBindings()) {
+            Node namedImport = new Node(Token.NAMED_IMPORT, lineno, colno);
+            node.addChildToBack(namedImport);
+            namedImport.addChildToBack(transform(binding.getTargetName()));
+            namedImport.addChildToBack(transform(binding.getScopeName()));
+        }
+
+        if (importNode.getModulePath() != null) {
+            node.addChildToBack(importNode.getModulePath());
+        }
+
+        return node;
+    }
+
+    private Node transformExport(ExportNode exportNode) {
+        int lineno = exportNode.getLineno();
+        int colno = exportNode.getColumn();
+        Node node = new Node(Token.EXPORT, lineno, colno);
+
+        ImportNode.ModuleBinding namespaceExport = exportNode.getNamespaceBinding();
+        List<ImportNode.ModuleBinding> namedBindings = exportNode.getNamedBindings();
+        AstNode value = exportNode.getExportedValue();
+
+        if (namespaceExport != null) {
+            Node namespaceExportNode = new Node(Token.NAMESPACE_IMPORT_EXPORT, lineno, colno);
+            node.addChildToBack(namespaceExportNode);
+            if (namespaceExport.getScopeName() != null)
+                namespaceExportNode.addChildToBack(transform(namespaceExport.getScopeName()));
+        } else if (value != null) {
+            List<Name> declarationNames;
+
+            if (exportNode.isDefaultExport()) {
+                // Rewrite `export default <expr>` as `export const *default* = <expr>`
+                // TODO: Does this have to be put in the scope's symbol table?
+                VariableDeclaration vd = new VariableDeclaration(value.getPosition(), value.getLength());
+                vd.setType(Token.CONST);
+                vd.setLineColumnNumber(lineno, colno);
+
+                VariableInitializer vi = new VariableInitializer(value.getPosition(), value.getLength());
+                Name defaultName = new Name(value.getPosition(), "*default*");
+                declarationNames = List.of(defaultName);
+                vi.setTarget(defaultName.copy());
+                vi.setType(Token.CONST);
+                vi.setInitializer(value);
+                vi.setLineColumnNumber(lineno, colno);
+                vd.addVariable(vi);
+
+                value = vd;
+            } else {
+                DeclarationNameVisitor visitor = new DeclarationNameVisitor();
+                value.visit(visitor);
+                declarationNames = visitor.getNames();
+            }
+
+            Node exportValue = new Node(Token.EXPORT_VALUE, lineno, colno);
+            exportValue.addChildToBack(transform(value));
+            node.addChildToBack(exportValue);
+
+            assert namedBindings.isEmpty();
+            namedBindings = declarationNames
+                    .stream()
+                    .map(name -> new ImportNode.ModuleBinding(name.copy(), name.copy()))
+                    .collect(Collectors.toList());
+        }
+
+        for (ImportNode.ModuleBinding binding : namedBindings) {
+            Node namedExport = new Node(Token.NAMED_EXPORT, lineno, colno);
+            node.addChildToBack(namedExport);
+            namedExport.addChildToBack(transform(binding.getTargetName()));
+            namedExport.addChildToBack(transform(binding.getScopeName()));
+        }
+
+        if (exportNode.getModulePath() != null) {
+            node.addChildToBack(exportNode.getModulePath());
+        }
+
+        return node;
     }
 
     private Node transformForInLoop(ForInLoop loop) {

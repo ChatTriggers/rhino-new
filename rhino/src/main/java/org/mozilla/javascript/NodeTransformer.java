@@ -107,6 +107,12 @@ public class NodeTransformer {
             }
 
             switch (type) {
+                case Token.NAMED_EXPORT:
+                case Token.NAMED_IMPORT:
+                case Token.NAMESPACE_IMPORT_EXPORT:
+                    // Don't transform these nodes
+                    return;
+
                 case Token.LABEL:
                 case Token.SWITCH:
                 case Token.LOOP:

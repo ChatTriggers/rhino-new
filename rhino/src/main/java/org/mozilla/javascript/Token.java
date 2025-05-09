@@ -242,7 +242,11 @@ public class Token {
             DOTDOTDOT = TAGGED_TEMPLATE_LITERAL + 1, // spread/rest ...
             NULLISH_COALESCING = DOTDOTDOT + 1, // nullish coalescing (??)
             QUESTION_DOT = NULLISH_COALESCING + 1, // optional chaining operator (?.)
-            LAST_TOKEN = QUESTION_DOT + 1;
+            NAMED_IMPORT = QUESTION_DOT + 1,
+            NAMED_EXPORT = NAMED_IMPORT + 1,
+            NAMESPACE_IMPORT_EXPORT = NAMED_EXPORT + 1,
+            EXPORT_VALUE = NAMESPACE_IMPORT_EXPORT + 1,
+            LAST_TOKEN = EXPORT_VALUE + 1;
 
     /**
      * Returns a name for the token. If Rhino is compiled with certain hardcoded debugging flags in
@@ -641,6 +645,14 @@ public class Token {
                 return "DOTDOTDOT";
             case QUESTION_DOT:
                 return "QUESTION_DOT";
+            case NAMED_IMPORT:
+                return "NAMED_IMPORT";
+            case NAMED_EXPORT:
+                return "NAMED_EXPORT";
+            case NAMESPACE_IMPORT_EXPORT:
+                return "NAMESPACE_IMPORT_EXPORT";
+            case EXPORT_VALUE:
+                return "EXPORT_VALUE";
         }
 
         // Token without name
