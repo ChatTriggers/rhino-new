@@ -977,6 +977,13 @@ class BodyCodegen {
                 }
                 break;
 
+            case Token.IMPORT:
+                visitImport(node);
+                break;
+            case Token.EXPORT:
+                visitExport(node);
+                break;
+
             case Token.DEBUGGER:
                 break;
 
@@ -4518,6 +4525,130 @@ class BodyCodegen {
                 "leaveDotQuery",
                 "(Lorg/mozilla/javascript/Scriptable;" + ")Lorg/mozilla/javascript/Scriptable;");
         cfw.addAStore(variableObjectLocal);
+    }
+
+    private void visitImport(Node node) {
+        // Generate source scope
+        generateRequireCall(node.getLastChild().getString());
+
+        for (Node childNode = node.getFirstChild(); childNode != null && childNode.getType() != Token.NAME; childNode = childNode.getNext()) {
+            switch (childNode.getType()) {
+                case Token.NAMED_IMPORT:
+                    Node sourceName = childNode.getFirstChild();
+                    Node destName = sourceName.getNext();
+                    cfw.add(ByteCode.DUP);
+                    cfw.addALoad(variableObjectLocal);
+                    cfw.addPush(sourceName.getString());
+                    cfw.addPush(destName.getString());
+                    addScriptRuntimeInvoke(
+                            "importMember",
+                            "(Lorg/mozilla/javascript/Scriptable;"
+                                    + "Lorg/mozilla/javascript/Scriptable;"
+                                    + "Ljava/lang/String;"
+                                    + "Ljava/lang/String;)V");
+                    break;
+                case Token.NAMESPACE_IMPORT_EXPORT:
+                    Node targetName = childNode.getFirstChild();
+                    cfw.add(ByteCode.DUP);
+                    cfw.addALoad(variableObjectLocal);
+                    cfw.addPush(targetName.getString());
+                    addScriptRuntimeInvoke(
+                            "importNamespace",
+                            "(Lorg/mozilla/javascript/Scriptable;"
+                                    + "Lorg/mozilla/javascript/Scriptable;"
+                                    + "Ljava/lang/String;)V");
+                    break;
+            }
+        }
+
+        cfw.add(ByteCode.POP);
+    }
+
+    private void visitExport(Node node) {
+        // Generate source scope
+        Node filePathNode = node.getLastChild();
+        String filePath = filePathNode != null && filePathNode.getType() == Token.NAME ? filePathNode.getString() : null;
+        if (filePath != null) {
+            generateRequireCall(filePath);
+        } else {
+            cfw.addALoad(variableObjectLocal);
+        }
+
+        // Generate dest scope
+        cfw.addALoad(variableObjectLocal);
+        generateModuleExportsAccess();
+
+        for (Node childNode = node.getFirstChild(); childNode != null && childNode.getType() != Token.NAME; childNode = childNode.getNext()) {
+            switch (childNode.getType()) {
+                case Token.EXPORT_VALUE:
+                    Node statement = childNode.getFirstChild();
+                    generateStatement(statement);
+                    break;
+                case Token.NAMED_EXPORT:
+                    Node sourceName = childNode.getFirstChild();
+                    Node destName = sourceName.getNext();
+                    cfw.add(ByteCode.DUP2);
+                    cfw.addPush(sourceName.getString());
+                    cfw.addPush(destName.getString());
+                    addScriptRuntimeInvoke(
+                            "exportMember",
+                            "(Lorg/mozilla/javascript/Scriptable;"
+                                    + "Lorg/mozilla/javascript/Scriptable;"
+                                    + "Ljava/lang/String;"
+                                    + "Ljava/lang/String;)V");
+                    break;
+                case Token.NAMESPACE_IMPORT_EXPORT:
+                    Node targetName = childNode.getFirstChild();
+                    cfw.add(ByteCode.DUP2);
+                    if (targetName != null) {
+                        cfw.addPush(targetName.getString());
+                    } else {
+                        cfw.add(ByteCode.ACONST_NULL);
+                    }
+                    addScriptRuntimeInvoke(
+                            "exportNamespace",
+                            "(Lorg/mozilla/javascript/Scriptable;"
+                                    + "Lorg/mozilla/javascript/Scriptable;"
+                                    + "Ljava/lang/String;)V");
+                    break;
+            }
+        }
+
+        cfw.add(ByteCode.POP);
+    }
+
+    private void generateRequireCall(String filePath) {
+        cfw.addPush(1);
+        cfw.add(ByteCode.ANEWARRAY, "java/lang/Object");
+        cfw.add(ByteCode.DUP);
+        cfw.addPush(0);
+        cfw.addPush(filePath);
+        cfw.add(ByteCode.AASTORE);
+
+        // Result of require
+        cfw.addPush("require");
+        cfw.addALoad(contextLocal);
+        cfw.addALoad(variableObjectLocal);
+        addOptRuntimeInvoke(
+                "callName",
+                "([Ljava/lang/Object;"
+                        + "Ljava/lang/String;"
+                        + "Lorg/mozilla/javascript/Context;"
+                        + "Lorg/mozilla/javascript/Scriptable;"
+                        + ")Ljava/lang/Object;");
+    }
+
+    private void generateModuleExportsAccess() {
+        cfw.addPush("exports");
+        cfw.addALoad(contextLocal);
+        cfw.addALoad(variableObjectLocal);
+        addScriptRuntimeInvoke(
+                "getObjectProp",
+                "(Ljava/lang/Object;"
+                        + "Ljava/lang/String;"
+                        + "Lorg/mozilla/javascript/Context;"
+                        + "Lorg/mozilla/javascript/Scriptable;)Ljava/lang/Object;");
+
     }
 
     private static int getLocalBlockRegister(Node node) {

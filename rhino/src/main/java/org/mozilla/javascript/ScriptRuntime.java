@@ -5508,6 +5508,77 @@ public class ScriptRuntime {
         return siteObj;
     }
 
+    public static void importMember(Scriptable sourceScope, Scriptable destScope, String scopeName, String targetName) {
+        Object value = ScriptableObject.getProperty(sourceScope, scopeName);
+        if (value == Scriptable.NOT_FOUND) {
+            // TODO: This can be validated at parse time if this is not a re-export
+            throw typeErrorById("msg.module.has.no.named.export", scopeName);
+        }
+
+        ScriptableObject.putConstProperty(destScope, targetName, value);
+    }
+
+    public static void importNamespace(Scriptable sourceScope, Scriptable destScope, String targetName) {
+        NativeObject obj = new NativeObject();
+        for (Object id : ScriptableObject.getPropertyIds(sourceScope)) {
+            // Namespace imports don't include the default export
+            if (!(id instanceof String) || "*default*".equals(id)) {
+                continue;
+            }
+
+            importMember(sourceScope, obj, (String) id, (String) id);
+        }
+
+        ScriptableObject.putConstProperty(destScope, targetName, obj);
+    }
+
+    public static void exportMember(Scriptable sourceScope, Scriptable destScope, String scopeName, String targetName) {
+        // TODO: Validate this at parse time
+        if (ScriptableObject.hasProperty(destScope, targetName)) {
+            if ("*default*".equals(targetName)) {
+                throw typeErrorById("msg.export.duplicate.default");
+            }
+            throw typeErrorById("msg.export.duplicate.identifier", targetName);
+        }
+
+        Object value = ScriptableObject.getProperty(sourceScope, scopeName);
+        if (value == Scriptable.NOT_FOUND) {
+            // TODO: This can be validated at parse time if this is not a re-export
+            throw typeErrorById("msg.module.has.no.named.export", scopeName);
+        }
+        ScriptableObject.putConstProperty(destScope, targetName, value);
+    }
+
+    public static void exportNamespace(Scriptable sourceScope, Scriptable destScope, String targetName) {
+        if (targetName != null) {
+            NativeObject obj = new NativeObject();
+            for (Object id : ScriptableObject.getPropertyIds(sourceScope)) {
+                // Namespace imports don't include the default export
+                if (!(id instanceof String) || "*default*".equals(id)) {
+                    continue;
+                }
+
+                exportMember(sourceScope, obj, (String) id, (String) id);
+            }
+
+            ScriptableObject.putConstProperty(destScope, targetName, obj);
+        } else {
+            for (Object id : ScriptableObject.getPropertyIds(sourceScope)) {
+                // Namespace imports don't include the default import
+                if (!(id instanceof String) || "*default*".equals(id)) {
+                    continue;
+                }
+
+                exportMember(sourceScope, destScope, (String) id, (String) id);
+            }
+        }
+    }
+
+    private static Scriptable getExports(Scriptable scope) {
+        Scriptable module = ScriptableObject.ensureScriptable(ScriptableObject.getProperty(scope, "module"));
+        return ScriptableObject.ensureScriptable(ScriptableObject.getProperty(module, "exports"));
+    }
+
     private static XMLLib currentXMLLib(Context cx) {
         // Scripts should be running to access this
         if (cx.topCallScope == null) throw new IllegalStateException();
