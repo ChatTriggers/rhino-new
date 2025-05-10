@@ -2468,6 +2468,56 @@ public final class Interpreter extends Icode implements Evaluator {
                                     stack[stackTop] = val;
                                     continue Loop;
                                 }
+                            case Icode_IMPORT_NAME:
+                                {
+                                    String[] names = stringReg.split("\\|");
+                                    if (names.length != 2) throw Kit.codeBug();
+                                    String sourceName = names[0];
+                                    String destName = names[1];
+
+                                    Scriptable sourceScope = ScriptableObject.ensureScriptable(stack[stackTop]);
+                                    ScriptRuntime.importMember(sourceScope, frame.scope, sourceName, destName);
+                                    continue Loop;
+                                }
+                            case Icode_IMPORT_NAMESPACE:
+                                {
+                                    Scriptable sourceScope = ScriptableObject.ensureScriptable(stack[stackTop]);
+                                    ScriptRuntime.importNamespace(sourceScope, frame.scope, stringReg);
+                                    continue Loop;
+                                }
+                            case Icode_EXPORT_NAME:
+                                {
+                                    String[] names = stringReg.split("\\|");
+                                    if (names.length != 2) throw Kit.codeBug();
+                                    String sourceName = names[0];
+                                    String destName = names[1];
+
+                                    Scriptable exportsObject = ScriptableObject.ensureScriptable(
+                                            ScriptableObject.getProperty(frame.scope, "exports"));
+                                    ScriptRuntime.exportMember(frame.scope, exportsObject, sourceName, destName);
+                                    continue Loop;
+                                }
+                            case Icode_REEXPORT_NAME:
+                                {
+                                    String[] names = stringReg.split("\\|");
+                                    if (names.length != 2) throw Kit.codeBug();
+                                    String sourceName = names[0];
+                                    String destName = names[1];
+
+                                    Scriptable sourceExportsObject = (Scriptable)stack[stackTop--];
+                                    Scriptable destExportsObject = ScriptableObject.ensureScriptable(
+                                            ScriptableObject.getProperty(frame.scope, "exports"));
+                                    ScriptRuntime.exportMember(sourceExportsObject, destExportsObject, sourceName, destName);
+                                    continue Loop;
+                                }
+                            case Icode_REEXPORT_NAMESPACE:
+                                {
+                                    Scriptable sourceScope = ScriptableObject.ensureScriptable(stack[stackTop--]);
+                                    Scriptable destExportsObject = ScriptableObject.ensureScriptable(
+                                            ScriptableObject.getProperty(frame.scope, "exports"));
+                                    ScriptRuntime.exportNamespace(sourceScope, destExportsObject, stringReg);
+                                    continue Loop;
+                                }
                             case Icode_ENTERDQ:
                                 {
                                     Object lhs = stack[stackTop];

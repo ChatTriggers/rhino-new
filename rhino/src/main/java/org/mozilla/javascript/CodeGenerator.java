@@ -540,6 +540,13 @@ class CodeGenerator extends Icode {
                 stackChange(-1);
                 break;
 
+            case Token.IMPORT:
+                visitImport(node);
+                break;
+            case Token.EXPORT:
+                visitExport(node);
+                break;
+
             case Icode_GENERATOR:
                 break;
 
@@ -1503,6 +1510,86 @@ class CodeGenerator extends Icode {
         // by statements.
         visitStatement(initStmt, stackDepth);
         visitExpression(expr, 0);
+    }
+
+    private void visitImport(Node node) {
+        // Generate source scope
+        callRequire(node.getLastChild().getString());
+
+        for (Node childNode = node.getFirstChild(); childNode != null && childNode.getType() != Token.NAME; childNode = childNode.getNext()) {
+            switch (childNode.getType()) {
+                case Token.NAMED_IMPORT:
+                    Node sourceName = childNode.getFirstChild();
+                    Node destName = sourceName.getNext();
+                    // TODO: Can I not have two strings???
+                    addStringOp(Icode_IMPORT_NAME, sourceName.getString() + "|" + destName.getString());
+                    break;
+                case Token.NAMESPACE_IMPORT_EXPORT:
+                    Node targetName = childNode.getFirstChild();
+                    addStringOp(Icode_IMPORT_NAMESPACE, targetName.getString());
+                    break;
+            }
+        }
+
+        addIcode(Icode_POP);
+        stackChange(-1);
+    }
+
+    private void visitExport(Node node) {
+        // Generate source scope
+        Node filePathNode = node.getLastChild();
+        boolean isReexport = false;
+        if (filePathNode != null && filePathNode.getType() == Token.NAME) {
+            callRequire(filePathNode.getString());
+            isReexport = true;
+        }
+
+        for (Node childNode = node.getFirstChild(); childNode != null && childNode.getType() != Token.NAME; childNode = childNode.getNext()) {
+            switch (childNode.getType()) {
+                case Token.EXPORT_VALUE:
+                    Node statement = childNode.getFirstChild();
+                    visitStatement(statement, stackDepth);
+                    break;
+                case Token.NAMED_EXPORT:
+                    Node sourceName = childNode.getFirstChild();
+                    Node destName = sourceName.getNext();
+                    if (isReexport) {
+                        addIcode(Icode_DUP);
+                        stackChange(1);
+                    }
+                    // TODO: Can I not have two strings???
+                    addStringOp(isReexport ? Icode_REEXPORT_NAME : Icode_EXPORT_NAME, sourceName.getString() + "|" + destName.getString());
+                    if (isReexport) {
+                        stackChange(-1);
+                    }
+                    break;
+                case Token.NAMESPACE_IMPORT_EXPORT:
+                    Node targetName = childNode.getFirstChild();
+                    if (isReexport) {
+                        addIcode(Icode_DUP);
+                        stackChange(1);
+                    }
+                    addStringOp(Icode_REEXPORT_NAMESPACE, targetName != null ? targetName.getString() : null);
+                    if (isReexport) {
+                        stackChange(-1);
+                    }
+                    break;
+            }
+        }
+
+        if (isReexport) {
+            addIcode(Icode_POP);
+            stackChange(-1);
+        }
+    }
+
+    private void callRequire(String argument) {
+        addStringOp(Icode_NAME_AND_THIS, "require");
+        stackChange(2);
+        addStringOp(Token.STRING, argument);
+        stackChange(1);
+        addIndexOp(Token.CALL, 1);
+        stackChange(-2);
     }
 
     private static int getLocalBlockRef(Node node) {

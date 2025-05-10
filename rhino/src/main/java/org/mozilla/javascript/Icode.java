@@ -162,8 +162,16 @@ abstract class Icode {
             // delete super.prop
             Icode_DELPROP_SUPER = Icode_CALL_ON_SUPER - 1,
 
+            // Import/Export
+            Icode_GET_MODULE_EXPORTS = Icode_DELPROP_SUPER - 1,
+            Icode_EXPORT_NAME = Icode_GET_MODULE_EXPORTS - 1,
+            Icode_REEXPORT_NAME = Icode_EXPORT_NAME - 1,
+            Icode_REEXPORT_NAMESPACE = Icode_REEXPORT_NAME - 1,
+            Icode_IMPORT_NAME = Icode_REEXPORT_NAMESPACE - 1,
+            Icode_IMPORT_NAMESPACE = Icode_IMPORT_NAME - 1,
+
             // Last icode
-            MIN_ICODE = Icode_DELPROP_SUPER;
+            MIN_ICODE = Icode_IMPORT_NAMESPACE;
 
     static String bytecodeName(int bytecode) {
         if (!validBytecode(bytecode)) {
@@ -353,6 +361,18 @@ abstract class Icode {
                 return "CALL_ON_SUPER";
             case Icode_DELPROP_SUPER:
                 return "DELPROP_SUPER";
+            case Icode_GET_MODULE_EXPORTS:
+                return "GET_MODULE_EXPORTS";
+            case Icode_EXPORT_NAME:
+                return "EXPORT_NAME";
+            case Icode_REEXPORT_NAME:
+                return "REEXPORT_NAME";
+            case Icode_REEXPORT_NAMESPACE:
+                return "REEXPORT_NAMESPACE";
+            case Icode_IMPORT_NAME:
+                return "IMPORT_NAME";
+            case Icode_IMPORT_NAMESPACE:
+                return "IMPORT_NAMESPACE";
         }
 
         // icode without name
